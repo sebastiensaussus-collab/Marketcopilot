@@ -1,0 +1,13 @@
+backend/.venv/
+backend/.env
+backend/market_copilot.db
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/*.egg-info/
+
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+
+.DS_Store
