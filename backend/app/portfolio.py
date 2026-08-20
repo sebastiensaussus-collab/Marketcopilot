@@ -10,9 +10,12 @@ from typing import Optional
 
 from anthropic import Anthropic
 
-from app.connectors import ibkr
+from app.connectors import fx, ibkr
 from app.settings import settings
-from app.store import get_manual_holdings, replace_manual_holdings, upsert_manual_trade
+from app.store import get_broker_cash, get_manual_holdings, replace_manual_holdings, upsert_broker_cash, upsert_manual_trade
+
+ACCOUNT_CCY = "EUR"  # matches app/portfolio_risk.py's ACCOUNT_CCY -- everything cash-related
+# converts to this currency so it's directly comparable to nav_eur/suggested_eur in action_plan.py.
 
 logger = logging.getLogger("market_copilot.portfolio")
 
@@ -100,7 +103,37 @@ def get_unified_portfolio() -> dict:
         },
         "manual": manual,
         "combined_quantity_by_symbol": combined,
+        "cash": available_cash_eur(),
     }
+
+
+def available_cash_eur() -> dict:
+    """Total deployable cash across IBKR (live TotalCashValue, converted to EUR) and
+    manually-declared ING/Bolero balances (see BrokerCash in app/store.py -- there's no
+    live feed for either broker, so this is the literal mechanism for "I have new cash to
+    deploy"). This is what gates buy recommendations in app/action_plan.py; a Buy that
+    can't be funded from this total never gets shown as actionable.
+    """
+    by_broker: dict[str, float] = {}
+
+    account_summary = ibkr.fetch_account_summary()
+    if account_summary and "TotalCashValue" in account_summary:
+        tag = account_summary["TotalCashValue"]
+        rate = fx.get_fx_rate(tag["currency"], ACCOUNT_CCY)
+        if rate is not None:
+            by_broker["ibkr"] = round(float(tag["value"]) * rate, 2)
+
+    for row in get_broker_cash():
+        by_broker[row.broker] = row.cash_eur
+
+    return {"total_eur": round(sum(by_broker.values()), 2), "by_broker": by_broker}
+
+
+def set_broker_cash(broker: str, cash_eur: float) -> dict:
+    if cash_eur < 0:
+        raise ValueError("cash_eur must be non-negative")
+    row = upsert_broker_cash(broker, cash_eur)
+    return {"broker": row.broker, "cash_eur": row.cash_eur}
 
 
 def compute_trade_result(

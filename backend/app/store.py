@@ -104,6 +104,18 @@ class ManualHolding(SQLModel, table=True):
     imported_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class BrokerCash(SQLModel, table=True):
+    """User-declared available cash for a broker with no live feed (ING, Bolero) -- unlike
+    IBKR's TotalCashValue (fetched live via app/connectors/ibkr.py), there's no way to
+    detect this automatically, so it's the literal mechanism for "I have new cash to
+    deploy": updated explicitly via POST /portfolio/cash, read by
+    app/portfolio.available_cash_eur() to gate buy recommendations in app/action_plan.py."""
+
+    broker: str = Field(primary_key=True)
+    cash_eur: float
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class AlertLog(SQLModel, table=True):
     """One row per actually-sent urgent alert, keyed by (alert_type, symbol) -- the dedup
     record app/alerts.py's cooldown check reads. Without this, a condition that persists
@@ -337,6 +349,28 @@ def upsert_manual_trade(broker: str, symbol: str, new_quantity: float, new_avera
         session.commit()
         session.refresh(row)
         return row
+
+
+def upsert_broker_cash(broker: str, cash_eur: float) -> BrokerCash:
+    with Session(get_engine()) as session:
+        row = session.get(BrokerCash, broker)
+        if row is None:
+            row = BrokerCash(broker=broker, cash_eur=cash_eur)
+        else:
+            row.cash_eur = cash_eur
+            row.updated_at = datetime.now(timezone.utc)
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
+def get_broker_cash(broker: Optional[str] = None) -> list[BrokerCash]:
+    with Session(get_engine()) as session:
+        statement = select(BrokerCash)
+        if broker:
+            statement = statement.where(BrokerCash.broker == broker)
+        return list(session.exec(statement).all())
 
 
 def create_journal_entry(

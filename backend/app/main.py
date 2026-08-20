@@ -256,6 +256,22 @@ async def portfolio_import(broker: str, file: UploadFile = File(...)):
     return {"broker": broker, "holdings_imported": count}
 
 
+class BrokerCashRequest(BaseModel):
+    broker: str
+    cash_eur: float
+
+
+@app.post("/portfolio/cash")
+def portfolio_set_cash(payload: BrokerCashRequest):
+    """Declares available cash for a broker with no live feed (ING, Bolero) -- the
+    mechanism for "I have new cash to deploy" that gates buy recommendations in
+    app/action_plan.py. IBKR's cash is live/read-only and has no equivalent endpoint."""
+    try:
+        return portfolio.set_broker_cash(payload.broker, payload.cash_eur)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 ALLOWED_DOCUMENT_MEDIA_TYPES = {"application/pdf", "image/png", "image/jpeg", "image/webp"}
 
 

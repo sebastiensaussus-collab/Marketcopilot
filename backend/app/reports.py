@@ -143,10 +143,14 @@ def _today_actions_section(plan: dict) -> tuple[str, list[str]]:
     # clutter the email" discipline as the rest of this module).
     tradeable = [a for a in plan["actions"] if a["bucket"] in ("buy", "sell")]
 
-    nav_line_html = f"<p style='color:#5b6675; font-size:12px;'>Priced portfolio NAV: €{plan['nav_eur']:.0f}"
+    nav_line_html = (
+        f"<p style='color:#5b6675; font-size:12px;'>Priced portfolio NAV: €{plan['nav_eur']:.0f} "
+        f"&mdash; €{plan['available_cash_eur']:.0f} cash available to deploy"
+    )
     if plan["unpriced_symbols"]:
         nav_line_html += f" &mdash; unpriced (excluded): {', '.join(plan['unpriced_symbols'])}"
     nav_line_html += "</p>"
+    cash_line_text = f"Cash available to deploy: €{plan['available_cash_eur']:.0f}"
 
     if not tradeable:
         html = _section_html(
@@ -154,12 +158,16 @@ def _today_actions_section(plan: dict) -> tuple[str, list[str]]:
             "#0b2545",
             nav_line_html + "<p>Nothing actionable today — current positions sit within model-suggested weight and no new idea clears the bar.</p>",
         )
-        text = ["TODAY'S ACTIONS:", "  none — positions within model-suggested weight, no new idea clears the bar."]
+        text = [
+            "TODAY'S ACTIONS:",
+            "  none — positions within model-suggested weight, no new idea clears the bar.",
+            cash_line_text,
+        ]
         return html, text
 
     rows_html = "".join(_action_row_html(a) for a in tradeable[:8])
     html = _section_html("Today's actions", "#0b2545", nav_line_html + rows_html)
-    text = ["TODAY'S ACTIONS:", *[_action_row_text(a) for a in tradeable[:8]]]
+    text = ["TODAY'S ACTIONS:", *[_action_row_text(a) for a in tradeable[:8]], cash_line_text]
     return html, text
 
 

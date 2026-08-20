@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from app import watchdog
 from app.calculators import fees
 from app.connectors import fred
+from app.portfolio import available_cash_eur
 from app.portfolio_risk import (
     CONCENTRATION_THRESHOLD,
     HIGH_CORRELATION_THRESHOLD,
@@ -301,6 +302,7 @@ def build_today_actions(
     macro_snapshot: dict | None = None,
     price_moves: list[dict] | None = None,
     correlated_holdings: dict[str, list[dict]] | None = None,
+    available_cash: dict | None = None,
 ) -> dict:
     """Injectable args are for testing without live network/DB -- mirrors app/journal.py's
     calibration_summary(entries=None) pattern. price_moves also lets a caller that already
@@ -309,6 +311,8 @@ def build_today_actions(
     correlated_holdings skips the live cross-sleeve correlation lookup entirely when
     supplied (even as {}) -- it's a real yfinance history call per candidate/holding, not
     something every test should pay for just by constructing a satellite buy action.
+    available_cash (see app/portfolio.available_cash_eur) gates which buy actions are
+    actually actionable -- see the reclassification pass below.
     """
     if opportunities is None:
         opportunities = get_opportunities("satellite")
@@ -320,6 +324,8 @@ def build_today_actions(
         macro_snapshot = fred.get_latest_macro_snapshot()
     if price_moves is None:
         price_moves = watchdog.price_move_check()
+    if available_cash is None:
+        available_cash = available_cash_eur()
 
     nav_eur = sum(h["value_eur"] for h in priced)
     held_by_symbol = _held_value_by_symbol(priced)
@@ -371,6 +377,7 @@ def build_today_actions(
                 "rationale": _rationale(action, held_eur, suggested_eur, fee_total),
                 "thesis": o.thesis,
                 "correlated_holdings": [],
+                "cash_available": None,
                 **levels,
             }
         )
@@ -440,6 +447,7 @@ def build_today_actions(
                         "rationale": rationale,
                         "thesis": None,
                         "correlated_holdings": [],
+                        "cash_available": None,
                         "reference_price": None,
                         "limit_price": None,
                         "stop_price": None,
@@ -471,6 +479,7 @@ def build_today_actions(
                 "rationale": rationale,
                 "thesis": None,
                 "correlated_holdings": [],
+                "cash_available": None,
                 "reference_price": None,
                 "limit_price": None,
                 "stop_price": None,
@@ -482,11 +491,37 @@ def build_today_actions(
     priority = {"exit": 0, "trim": 1, "trim_unmanaged": 1, "add": 2, "new_entry": 3, "hold": 4, "hold_unmanaged": 5}
     actions.sort(key=lambda a: (priority[a["action"]], -(a["confidence"] or 0)))
 
+    # Cash gate: a buy is only actually actionable if there's real deployable cash to fund
+    # it -- see app/portfolio.available_cash_eur(). Greedily funds the strongest ideas
+    # first (this sort order is already "most important buy first"), rather than thinning
+    # every idea proportionally, so cash doesn't get spread across a pile of fee-inefficient
+    # micro-positions. Once one candidate can't be fully funded, it and everything after it
+    # (in this same priority order) is reclassified -- not skipped over in favor of a
+    # smaller one further down the list.
+    remaining_cash = available_cash["total_eur"]
+    cash_exhausted = False
+    for a in actions:
+        if a["bucket"] != "buy":
+            continue
+        cash_needed = (a["suggested_eur"] or 0) - a["held_eur"]
+        if not cash_exhausted and cash_needed <= remaining_cash:
+            remaining_cash -= cash_needed
+            a["cash_available"] = True
+        else:
+            cash_exhausted = True
+            a["bucket"] = "buy_no_cash"
+            a["cash_available"] = False
+            a["rationale"] += (
+                " No cash currently available to fund this -- shown for research, not "
+                "actionable until cash is added (see the Portfolio section)."
+            )
+
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "nav_eur": round(nav_eur, 2),
         "unpriced_symbols": unpriced_symbols,
         "macro": macro_snapshot,
         "asset_allocation": _asset_allocation(priced),
+        "available_cash_eur": round(available_cash["total_eur"], 2),
         "actions": actions,
     }

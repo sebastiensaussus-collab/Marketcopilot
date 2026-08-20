@@ -10,6 +10,7 @@ import {
   importPortfolioDocument,
   recordManualTrade,
   triggerRefresh,
+  updateBrokerCash,
 } from "./api.js";
 import { extractChips, extractSuggestedSize } from "./metrics.js";
 
@@ -334,6 +335,38 @@ function NeedsAttentionSection({ actions }) {
   );
 }
 
+function WouldBuySection({ actions }) {
+  const wouldBuy = actions.filter((a) => a.bucket === "buy_no_cash");
+  if (wouldBuy.length === 0) return null;
+
+  return (
+    <div className="would-buy">
+      <div className="would-buy-header">
+        <h3>Would buy — no cash available</h3>
+        <span>
+          Clears the bar, but there's no cash registered to fund it — not actionable today. Add cash in the
+          Portfolio section below to change that.
+        </span>
+      </div>
+      <div className="attention-list">
+        {wouldBuy.map((a) => (
+          <div className="attention-row would-buy-row" key={`${a.sleeve}-${a.symbol}`}>
+            <div className="attention-row-top">
+              <span className={`action-badge action-badge-${a.action}`}>{ACTION_LABELS[a.action]}</span>
+              <span className="symbol">{a.symbol}</span>
+              <span className="attention-row-name">{a.display_name}</span>
+              <span className="attention-row-figure">
+                {a.suggested_eur != null ? `€${Math.round(a.suggested_eur).toLocaleString()}` : null}
+              </span>
+            </div>
+            <p className="attention-row-reason">{a.rationale}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ActionBucketSection({ bucket, actions }) {
   return (
     <div className="action-bucket">
@@ -400,7 +433,14 @@ function AssetAllocationBar({ allocation }) {
 
 function ActionPlanSection({ actionPlan }) {
   if (!actionPlan) return null;
-  const { actions, nav_eur: navEur, unpriced_symbols: unpriced, macro, asset_allocation: assetAllocation } = actionPlan;
+  const {
+    actions,
+    nav_eur: navEur,
+    unpriced_symbols: unpriced,
+    macro,
+    asset_allocation: assetAllocation,
+    available_cash_eur: availableCashEur,
+  } = actionPlan;
   const riskCount = actions.filter((a) => a.bucket === "sell").length;
   const ideaCount = actions.filter((a) => a.bucket === "buy").length;
 
@@ -429,6 +469,10 @@ function ActionPlanSection({ actionPlan }) {
           <span className="stat-value">{ideaCount}</span>
           <span className="stat-label">adds / new ideas</span>
         </div>
+        <div className="stat">
+          <span className="stat-value">€{Math.round(availableCashEur || 0).toLocaleString()}</span>
+          <span className="stat-label">cash available to deploy</span>
+        </div>
       </div>
 
       {unpriced.length > 0 && (
@@ -440,6 +484,8 @@ function ActionPlanSection({ actionPlan }) {
           <ActionBucketSection key={bucket.id} bucket={bucket} actions={actions.filter((a) => a.bucket === bucket.id)} />
         ))}
       </div>
+
+      <WouldBuySection actions={actions} />
     </section>
   );
 }
@@ -500,11 +546,14 @@ function JournalSection({ journal }) {
   );
 }
 
-function IBKRStatus({ ibkr }) {
+function IBKRStatus({ ibkr, cashEur }) {
   return (
     <div className={`ibkr-status ${ibkr.connected ? "connected" : "disconnected"}`}>
       <span className="status-dot" />
       {ibkr.connected ? "IBKR connected" : "IBKR not connected"}
+      {ibkr.connected && cashEur != null && (
+        <span className="ibkr-cash">€{cashEur.toLocaleString()} cash (live)</span>
+      )}
     </div>
   );
 }
@@ -548,7 +597,7 @@ function PositionsTable({ positions }) {
   );
 }
 
-function ManualHoldingsTable({ broker, holdings, onReload }) {
+function ManualHoldingsTable({ broker, holdings, cashEur, onReload }) {
   return (
     <div className="manual-broker-block">
       <h4>{broker}</h4>
@@ -577,6 +626,7 @@ function ManualHoldingsTable({ broker, holdings, onReload }) {
         <p className="empty-hint-small">No holdings imported yet.</p>
       )}
       <TradeForm broker={broker} onReload={onReload} />
+      <CashControl broker={broker} cashEur={cashEur} onReload={onReload} />
     </div>
   );
 }
@@ -644,6 +694,60 @@ function TradeForm({ broker, onReload }) {
       </button>
       {status && <span className="trade-form-status">{status}</span>}
     </form>
+  );
+}
+
+function CashControl({ broker, cashEur, onReload }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(cashEur ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState(null);
+
+  async function handleSave() {
+    setBusy(true);
+    setStatus(null);
+    try {
+      await updateBrokerCash(broker, parseFloat(value) || 0);
+      setEditing(false);
+      onReload();
+    } catch (err) {
+      setStatus(`Error: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="cash-control">
+        <span className="cash-control-label">Cash available:</span>
+        <span className="cash-control-value">€{(cashEur ?? 0).toLocaleString()}</span>
+        <button
+          type="button"
+          className="cash-control-edit"
+          onClick={() => {
+            setValue(cashEur ?? 0);
+            setEditing(true);
+          }}
+        >
+          Update
+        </button>
+        {status && <span className="cash-control-status">{status}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="cash-control">
+      <span className="cash-control-label">Cash available:</span>
+      <input type="number" value={value} onChange={(e) => setValue(e.target.value)} disabled={busy} step="any" min="0" />
+      <button type="button" onClick={handleSave} disabled={busy}>
+        {busy ? "Saving…" : "Save"}
+      </button>
+      <button type="button" className="cash-control-cancel" onClick={() => setEditing(false)} disabled={busy}>
+        Cancel
+      </button>
+    </div>
   );
 }
 
@@ -919,7 +1023,7 @@ function PortfolioSection({ portfolio, risk, onReload }) {
         <p>Unified view across IBKR (live, read-only) and manually-imported ING/Bolero holdings.</p>
       </div>
 
-      <IBKRStatus ibkr={portfolio.ibkr} />
+      <IBKRStatus ibkr={portfolio.ibkr} cashEur={portfolio.cash?.by_broker?.ibkr} />
 
       {portfolio.ibkr.connected ? (
         <PositionsTable positions={portfolio.ibkr.positions} />
@@ -941,6 +1045,7 @@ function PortfolioSection({ portfolio, risk, onReload }) {
               key={broker}
               broker={broker}
               holdings={portfolio.manual[broker]}
+              cashEur={portfolio.cash?.by_broker?.[broker]}
               onReload={onReload}
             />
           ))

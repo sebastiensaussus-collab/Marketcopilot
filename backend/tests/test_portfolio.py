@@ -1,6 +1,8 @@
 import pytest
+from types import SimpleNamespace
 
-from app.portfolio import _is_valid_extraction, compute_trade_result, parse_holdings_csv
+import app.portfolio as portfolio_module
+from app.portfolio import _is_valid_extraction, available_cash_eur, compute_trade_result, parse_holdings_csv, set_broker_cash
 
 
 def test_parse_holdings_csv_basic():
@@ -118,3 +120,46 @@ def test_is_valid_extraction_rejects_missing_required_field():
 
 def test_is_valid_extraction_rejects_non_numeric_quantity():
     assert not _is_valid_extraction([{"name": "NVIDIA CORP", "symbol_guess": "NVDA", "quantity": "six"}])
+
+
+def test_set_broker_cash_rejects_negative():
+    with pytest.raises(ValueError, match="non-negative"):
+        set_broker_cash("bolero", -1)
+
+
+def test_available_cash_eur_combines_ibkr_and_broker_cash(monkeypatch):
+    monkeypatch.setattr(
+        portfolio_module.ibkr, "fetch_account_summary", lambda: {"TotalCashValue": {"value": 1000, "currency": "USD"}}
+    )
+    monkeypatch.setattr(portfolio_module.fx, "get_fx_rate", lambda from_ccy, to_ccy: 0.9)
+    monkeypatch.setattr(
+        portfolio_module, "get_broker_cash", lambda: [SimpleNamespace(broker="bolero", cash_eur=200.0)]
+    )
+
+    result = available_cash_eur()
+
+    assert result["by_broker"] == {"ibkr": 900.0, "bolero": 200.0}
+    assert result["total_eur"] == 1100.0
+
+
+def test_available_cash_eur_ibkr_not_connected(monkeypatch):
+    monkeypatch.setattr(portfolio_module.ibkr, "fetch_account_summary", lambda: None)
+    monkeypatch.setattr(portfolio_module, "get_broker_cash", lambda: [SimpleNamespace(broker="ing", cash_eur=50.0)])
+
+    result = available_cash_eur()
+
+    assert "ibkr" not in result["by_broker"]
+    assert result["total_eur"] == 50.0
+
+
+def test_available_cash_eur_fx_unavailable_excludes_ibkr_cash(monkeypatch):
+    monkeypatch.setattr(
+        portfolio_module.ibkr, "fetch_account_summary", lambda: {"TotalCashValue": {"value": 1000, "currency": "USD"}}
+    )
+    monkeypatch.setattr(portfolio_module.fx, "get_fx_rate", lambda from_ccy, to_ccy: None)
+    monkeypatch.setattr(portfolio_module, "get_broker_cash", lambda: [])
+
+    result = available_cash_eur()
+
+    assert "ibkr" not in result["by_broker"]
+    assert result["total_eur"] == 0.0

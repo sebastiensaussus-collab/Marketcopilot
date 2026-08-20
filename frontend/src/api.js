@@ -81,3 +81,14 @@ export async function recordManualTrade(broker, symbol, action, quantity, price)
   if (!res.ok) throw new Error(body.detail || `POST /portfolio/trade failed: ${res.status}`);
   return body;
 }
+
+export async function updateBrokerCash(broker, cashEur) {
+  const res = await fetch(`${BASE_URL}/portfolio/cash`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ broker, cash_eur: cashEur }),
+  });
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.detail || `POST /portfolio/cash failed: ${res.status}`);
+  return body;
+}

@@ -29,10 +29,18 @@ def _filler(value_eur):
     return [h for i in range(5) for h in _priced(f"ZZZ{i}", each)]
 
 
+# Passed explicitly to every build_today_actions() call below that isn't itself testing
+# cash-gating -- keeps those tests isolated from the feature (same reasoning as always
+# passing correlated_holdings={} to skip the live correlation lookup) and, just as
+# importantly, avoids a live available_cash_eur() call (a real IBKR connection attempt)
+# on every single test run when available_cash defaults to None.
+_UNLIMITED_CASH = {"total_eur": 1_000_000_000, "by_broker": {}}
+
+
 def test_new_entry_when_not_held():
     opp = _opp("AAA", suggested_pct=0.05)
     result = build_today_actions(
-        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}
+        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH
     )
     assert result["actions"][0]["action"] == "new_entry"
     assert result["actions"][0]["bucket"] == "buy"
@@ -42,7 +50,7 @@ def test_new_entry_when_not_held():
 def test_add_when_underweight_beyond_tolerance():
     opp = _opp("AAA", suggested_pct=0.05)
     priced = _priced("AAA", 100) + _filler(9_900)  # nav=10,000, held=100, suggested=500
-    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     assert result["actions"][0]["action"] == "add"
     assert result["actions"][0]["bucket"] == "buy"
 
@@ -50,7 +58,7 @@ def test_add_when_underweight_beyond_tolerance():
 def test_trim_when_overweight_beyond_tolerance():
     opp = _opp("AAA", suggested_pct=0.05)
     priced = _priced("AAA", 900) + _filler(9_100)  # nav=10,000, held=900, suggested=500
-    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     assert result["actions"][0]["action"] == "trim"
     assert result["actions"][0]["bucket"] == "sell"
 
@@ -60,7 +68,7 @@ def test_hold_within_tolerance_is_shown_not_dropped():
     # ZZZ has no opportunity, so it's a legitimate hold_unmanaged of its own -- only assert
     # on AAA, the symbol actually under test here.
     priced = _priced("AAA", 480) + _filler(9_520)  # nav=10,000, held=480 vs suggested=500 -- <€50 gap
-    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     aaa = next(a for a in result["actions"] if a["symbol"] == "AAA")
     assert aaa["action"] == "hold"
     assert aaa["bucket"] == "hold"
@@ -72,7 +80,7 @@ def test_not_held_and_below_actionable_threshold_is_excluded():
     # unlike the in-tolerance-but-held case above which becomes a "hold".
     opp = _opp("AAA", suggested_pct=0.001)
     priced = _filler(10_000)  # suggested = €10, well under MIN_ACTIONABLE_EUR
-    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[opp], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     assert all(a["symbol"] != "AAA" for a in result["actions"])
 
 
@@ -85,6 +93,7 @@ def test_exit_when_held_and_invalidated_regardless_of_sizing():
         macro_snapshot={},
         price_moves=[{"symbol": "AAA", "move": -0.1, "current_price": 90.0}],
         correlated_holdings={},
+        available_cash=_UNLIMITED_CASH,
     )
     assert result["actions"][0]["action"] == "exit"
     assert result["actions"][0]["bucket"] == "sell"
@@ -103,6 +112,7 @@ def test_urgent_flag_true_for_exit_false_for_routine_actions():
         macro_snapshot={},
         price_moves=[{"symbol": "AAA", "move": -0.1, "current_price": 90.0}],
         correlated_holdings={},
+        available_cash=_UNLIMITED_CASH,
     )
     by_symbol = {a["symbol"]: a for a in result["actions"]}
     assert by_symbol["AAA"]["action"] == "exit"
@@ -115,7 +125,7 @@ def test_urgent_flag_true_for_trim_unmanaged_false_for_hold_unmanaged():
     priced = _priced("IWDA", 6_000, name="iShares Core MSCI World UCITS ETF") + _priced(
         "EIMI", 1_000, name="iShares Core MSCI EM IMI UCITS ETF"
     ) + _filler(3_000)  # IWDA 60% of NAV (over threshold), EIMI 10% (under)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     by_symbol = {a["symbol"]: a for a in result["actions"]}
     assert by_symbol["IWDA"]["action"] == "trim_unmanaged"
     assert by_symbol["IWDA"]["urgent"] is True
@@ -127,7 +137,7 @@ def test_zero_nav_degrades_to_no_actionable_sizing():
     # Nothing priced (no IBKR connection, no manual holdings) -- must not fabricate a EUR
     # amount out of thin air, must just skip sizing-based actions.
     opp = _opp("AAA", suggested_pct=0.05)
-    result = build_today_actions(opportunities=[opp], priced=[], macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[opp], priced=[], macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     assert result["actions"] == []
     assert result["nav_eur"] == 0.0
 
@@ -142,6 +152,7 @@ def test_actions_sorted_exit_before_add():
         macro_snapshot={},
         price_moves=[{"symbol": "BBB", "move": -0.1, "current_price": 45.0}],
         correlated_holdings={},
+        available_cash=_UNLIMITED_CASH,
     )
     # ZZZ (padding, uncovered) legitimately sorts last as hold_unmanaged -- only the
     # ordering of the two actionable items (exit before add) is under test here.
@@ -155,7 +166,7 @@ def test_hold_unmanaged_for_holding_with_no_opportunity():
     # just what the model has an opinion on. Padded so SAAB isn't itself
     # over-concentrated -- that path is tested separately.
     priced = _priced("SAAB", 1_000, name="Saab AB") + _filler(9_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "SAAB")
     assert entry["action"] == "hold_unmanaged"
     assert entry["bucket"] == "hold"
@@ -167,7 +178,7 @@ def test_hold_unmanaged_for_holding_with_no_opportunity():
 
 def test_hold_unmanaged_falls_back_to_symbol_when_name_unresolved():
     priced = _priced("SAAB", 1_000, name=None) + _filler(9_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "SAAB")
     assert entry["display_name"] == "SAAB"
 
@@ -175,7 +186,7 @@ def test_hold_unmanaged_falls_back_to_symbol_when_name_unresolved():
 def test_satellite_buy_gets_limit_below_reference_and_stop():
     opp = _opp("AAA", suggested_pct=0.05, price=100.0)
     result = build_today_actions(
-        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}
+        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH
     )
     a = result["actions"][0]
     assert a["reference_price"] == 100.0
@@ -187,7 +198,7 @@ def test_satellite_buy_gets_limit_below_reference_and_stop():
 def test_satellite_target_price_passes_through_dcf_fair_value_when_available():
     opp = _opp("AAA", suggested_pct=0.05, price=100.0, dcf_fair_value=130.0)
     result = build_today_actions(
-        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}
+        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH
     )
     assert result["actions"][0]["target_price"] == 130.0
 
@@ -195,7 +206,7 @@ def test_satellite_target_price_passes_through_dcf_fair_value_when_available():
 def test_target_price_absent_when_dcf_not_computable():
     opp = _opp("AAA", suggested_pct=0.05, price=100.0, dcf_fair_value=None)
     result = build_today_actions(
-        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}
+        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH
     )
     assert result["actions"][0]["target_price"] is None
 
@@ -211,6 +222,7 @@ def test_exit_limit_is_at_reference_price_not_buffered():
         macro_snapshot={},
         price_moves=[{"symbol": "AAA", "move": -0.1, "current_price": 90.0}],
         correlated_holdings={},
+        available_cash=_UNLIMITED_CASH,
     )
     a = result["actions"][0]
     assert a["action"] == "exit"
@@ -224,7 +236,7 @@ def test_concentrated_uncovered_holding_flagged_as_trim_unmanaged():
     # in the sell bucket, not silently stuck in "hold" forever regardless of how lopsided
     # the portfolio is.
     priced = _priced("IWDA", 6_000, name="iShares Core MSCI World UCITS ETF") + _filler(4_000)  # 60% of NAV
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "IWDA")
     assert entry["action"] == "trim_unmanaged"
     assert entry["bucket"] == "sell"
@@ -237,7 +249,7 @@ def test_concentrated_uncovered_holding_flagged_as_trim_unmanaged():
 
 def test_concentrated_uncovered_holding_infers_accumulating_etf_tob_from_name():
     priced = _priced("IWDA", 6_000, name="iShares Core MSCI World UCITS ETF USD (Acc)") + _filler(4_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "IWDA")
     from app.calculators.fees import estimate_tob
 
@@ -247,7 +259,7 @@ def test_concentrated_uncovered_holding_infers_accumulating_etf_tob_from_name():
 
 def test_uncovered_holding_below_concentration_threshold_stays_plain_hold():
     priced = _priced("EIMI", 1_000, name="iShares Core MSCI EM IMI UCITS ETF") + _filler(9_000)  # 10% of NAV
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "EIMI")
     assert entry["action"] == "hold_unmanaged"
     assert entry["bucket"] == "hold"
@@ -257,7 +269,7 @@ def test_concentration_trim_below_min_actionable_stays_hold():
     # Just barely over the 25% threshold -- the resulting trim (30 EUR) is under
     # MIN_ACTIONABLE_EUR (50), so this should stay a plain hold rather than flag a token trim.
     priced = _priced("IWDA", 2_530, name="iShares Core MSCI World UCITS ETF") + _filler(7_470)  # 25.3% of NAV
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "IWDA")
     assert entry["action"] == "hold_unmanaged"
 
@@ -271,7 +283,7 @@ _MACRO = {
 
 def test_asset_class_bond_fund_gets_duration_macro_context():
     priced = _priced("AGGH", 1_000, name="iShares Core Global Aggregate Bond UCITS ETF EUR Hedged (Acc)") + _filler(9_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot=_MACRO, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot=_MACRO, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "AGGH")
     assert entry["asset_class"] == "bond"
     assert "10Y yield 4.68%" in entry["rationale"]
@@ -281,7 +293,7 @@ def test_asset_class_bond_fund_gets_duration_macro_context():
 
 def test_asset_class_equity_etf_gets_backdrop_not_duration_language():
     priced = _priced("IWDA", 1_000, name="iShares Core MSCI World UCITS ETF") + _filler(9_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot=_MACRO, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot=_MACRO, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "IWDA")
     assert entry["asset_class"] == "equity"
     assert "Macro backdrop" in entry["rationale"]
@@ -291,7 +303,7 @@ def test_asset_class_equity_etf_gets_backdrop_not_duration_language():
 def test_no_macro_context_appended_when_macro_snapshot_empty():
     # FRED_API_KEY not configured -- must not fabricate macro commentary out of nothing.
     priced = _priced("AGGH", 1_000, name="iShares Core Global Aggregate Bond UCITS ETF") + _filler(9_000)
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     entry = next(a for a in result["actions"] if a["symbol"] == "AGGH")
     assert "Macro" not in entry["rationale"]
 
@@ -299,7 +311,7 @@ def test_no_macro_context_appended_when_macro_snapshot_empty():
 def test_covered_opportunity_gets_equity_asset_class_from_name():
     opp = _opp("AAPL", suggested_pct=0.05, price=100.0)
     result = build_today_actions(
-        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}
+        opportunities=[opp], priced=_filler(10_000), macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH
     )
     assert result["actions"][0]["asset_class"] == "equity"
 
@@ -364,6 +376,7 @@ def test_build_today_actions_enriches_correlated_satellite_buy():
         macro_snapshot={},
         price_moves=[],
         correlated_holdings=correlated,
+        available_cash=_UNLIMITED_CASH,
     )
     a = result["actions"][0]
     assert a["correlated_holdings"] == [{"symbol": "IWDA", "correlation": 0.85, "weight": 0.6}]
@@ -379,6 +392,7 @@ def test_build_today_actions_no_correlation_leaves_rationale_untouched():
         macro_snapshot={},
         price_moves=[],
         correlated_holdings={},
+        available_cash=_UNLIMITED_CASH,
     )
     a = result["actions"][0]
     assert a["correlated_holdings"] == []
@@ -391,7 +405,81 @@ def test_asset_allocation_breaks_down_priced_portfolio_by_class():
         + _priced("IWDA", 6_000, name="iShares Core MSCI World UCITS ETF")
         + _priced("PHAU", 1_000, name="WisdomTree Physical Gold")
     )
-    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={})
+    result = build_today_actions(opportunities=[], priced=priced, macro_snapshot={}, price_moves=[], correlated_holdings={}, available_cash=_UNLIMITED_CASH)
     alloc = result["asset_allocation"]
     assert alloc["total_value_eur"] == 10_000.0
     assert alloc["weights"] == {"bond": 0.3, "equity": 0.6, "commodity": 0.1}
+
+
+def test_cash_fully_covers_all_buys_stay_actionable():
+    aaa = _opp("AAA", suggested_pct=0.05)  # 500 on a 10,000 NAV
+    bbb = _opp("BBB", suggested_pct=0.03)  # 300 on a 10,000 NAV
+    result = build_today_actions(
+        opportunities=[aaa, bbb],
+        priced=_filler(10_000),
+        macro_snapshot={},
+        price_moves=[],
+        correlated_holdings={},
+        available_cash={"total_eur": 1_000, "by_broker": {"bolero": 1_000}},
+    )
+    by_symbol = {a["symbol"]: a for a in result["actions"]}
+    assert by_symbol["AAA"]["bucket"] == "buy"
+    assert by_symbol["AAA"]["cash_available"] is True
+    assert by_symbol["BBB"]["bucket"] == "buy"
+    assert by_symbol["BBB"]["cash_available"] is True
+    assert result["available_cash_eur"] == 1_000.0
+
+
+def test_cash_partially_covers_funds_strongest_idea_first():
+    # Same priority tier (both new_entry) and same suggested size -- confidence breaks the
+    # tie, matching the existing display-order sort, so the higher-conviction idea should
+    # be the one that gets the scarce cash.
+    strong = _opp("AAA", suggested_pct=0.05, confidence=0.9)  # 500 needed
+    weak = _opp("BBB", suggested_pct=0.05, confidence=0.3)  # 500 needed
+    result = build_today_actions(
+        opportunities=[strong, weak],
+        priced=_filler(10_000),
+        macro_snapshot={},
+        price_moves=[],
+        correlated_holdings={},
+        available_cash={"total_eur": 500, "by_broker": {}},
+    )
+    by_symbol = {a["symbol"]: a for a in result["actions"]}
+    assert by_symbol["AAA"]["bucket"] == "buy"
+    assert by_symbol["AAA"]["cash_available"] is True
+    assert by_symbol["BBB"]["bucket"] == "buy_no_cash"
+    assert by_symbol["BBB"]["cash_available"] is False
+    assert "no cash" in by_symbol["BBB"]["rationale"].lower()
+
+
+def test_zero_cash_reclassifies_every_buy_as_no_cash():
+    opp = _opp("AAA", suggested_pct=0.05)
+    result = build_today_actions(
+        opportunities=[opp],
+        priced=_filler(10_000),
+        macro_snapshot={},
+        price_moves=[],
+        correlated_holdings={},
+        available_cash={"total_eur": 0, "by_broker": {}},
+    )
+    a = result["actions"][0]
+    assert a["action"] == "new_entry"  # the underlying classification is unchanged...
+    assert a["bucket"] == "buy_no_cash"  # ...only whether it's actionable today
+    assert a["cash_available"] is False
+
+
+def test_sell_and_exit_actions_unaffected_by_zero_cash():
+    opp = _opp("AAA", suggested_pct=0.10, price=100.0)
+    priced = _priced("AAA", 500) + _filler(9_500)
+    result = build_today_actions(
+        opportunities=[opp],
+        priced=priced,
+        macro_snapshot={},
+        price_moves=[{"symbol": "AAA", "move": -0.1, "current_price": 90.0}],
+        correlated_holdings={},
+        available_cash={"total_eur": 0, "by_broker": {}},
+    )
+    a = result["actions"][0]
+    assert a["action"] == "exit"
+    assert a["bucket"] == "sell"  # selling never needs cash -- must not be touched by the gate
+    assert a["cash_available"] is None  # gate never runs on non-buy actions

@@ -362,6 +362,33 @@ button {
   text-overflow: ellipsis;
 }
 
+.would-buy {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  margin: 1.4rem 0 0;
+}
+
+.would-buy-header h3 {
+  margin: 0 0 0.2rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.would-buy-header span {
+  display: block;
+  margin: 0 0 0.6rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.would-buy-row .attention-row-figure {
+  color: var(--accent);
+}
+
 .macro-strip {
   display: flex;
   flex-wrap: wrap;
@@ -1068,6 +1095,13 @@ button {
   color: var(--text-muted);
 }
 
+.ibkr-cash {
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .portfolio-table {
   width: 100%;
   border-collapse: collapse;
@@ -1237,6 +1271,79 @@ button {
 .trade-form-status {
   font-size: 0.76rem;
   color: var(--text-muted);
+  font-style: italic;
+  flex-basis: 100%;
+}
+
+.cash-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.5rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.cash-control-label {
+  color: var(--text-muted);
+}
+
+.cash-control-value {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.cash-control input[type="number"] {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  width: 6rem;
+}
+
+.cash-control button {
+  background: var(--surface);
+  color: var(--navy);
+  border: 1px solid var(--navy);
+  border-radius: var(--radius);
+  padding: 0.3rem 0.65rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.cash-control button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.cash-control button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cash-control button.cash-control-edit {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  text-decoration: underline;
+  padding: 0;
+}
+
+.cash-control button.cash-control-cancel {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.cash-control-status {
+  font-size: 0.76rem;
+  color: var(--negative);
   font-style: italic;
   flex-basis: 100%;
 }
