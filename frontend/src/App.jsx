@@ -873,7 +873,7 @@ function DocumentImportForm({ onImported }) {
       {review && (
         <div className="document-import-review">
           <p className="document-import-review-hint">
-            Review before importing — confirm each symbol is correct (Claude's best guess from the
+            Review before importing — confirm each symbol is correct (the model's best guess from the
             statement, not a verified ticker), and convert any avg cost flagged as non-EUR before
             confirming (holdings here are tracked in EUR).
           </p>
@@ -1190,7 +1190,7 @@ export default function App() {
           title="Satellite"
           subtitle="Conviction — directional equity theses, sized smaller"
           opportunities={data.satellite}
-          emptyHint="No satellite opportunities yet. Click Refresh (needs ANTHROPIC_API_KEY set on the backend)."
+          emptyHint="No satellite opportunities yet. Click Refresh (needs OPENAI_API_KEY set on the backend)."
         />
       </main>
 

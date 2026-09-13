@@ -1,4 +1,4 @@
-"""Scans the free-data universe and ranks candidates cheaply, so the expensive Claude
+"""Scans the free-data universe and ranks candidates cheaply, so the expensive model
 synthesis call in synthesis.py only ever runs on a short, pre-filtered list.
 """
 
@@ -181,7 +181,7 @@ def _equity_screen_score(metrics: dict, technical_weights: dict | None = None) -
 
 
 def content_hash(payload: dict) -> str:
-    """Stable hash of a synthesis input bundle, used to skip redundant Claude calls
+    """Stable hash of a synthesis input bundle, used to skip redundant model calls
     when nothing material has changed since the last run."""
     encoded = json.dumps(payload, sort_keys=True, default=str).encode()
     return hashlib.sha256(encoded).hexdigest()

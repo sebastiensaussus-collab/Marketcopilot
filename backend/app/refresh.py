@@ -24,7 +24,7 @@ def _synthesize_equity_safe(candidate: dict, macro_snapshot: dict) -> dict | Non
 
 def run_full_refresh() -> dict:
     """Runs the screener, synthesizes the shortlist concurrently, and returns run
-    stats. This is the only path that spends Claude API calls -- the lunch/evening
+    stats. This is the only path that spends model API calls -- the lunch/evening
     reports deliberately avoid calling this again, see app/reports.py.
     """
     journal.review_due_entries()

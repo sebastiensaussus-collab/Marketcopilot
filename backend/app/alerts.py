@@ -1,7 +1,7 @@
 """Urgent, standalone email alerts -- distinct from the 3x/day digest reports
 (app/reports.py). Runs on its own tighter cadence (see app/main.py's urgent_alerts job).
 
-Zero new detection logic, zero new Claude cost: reuses exactly what the digest reports
+Zero new detection logic, zero new model API cost: reuses exactly what the digest reports
 already compute -- app/watchdog.py's price_move_check, and app/portfolio_risk.py's
 concentration flags (a holding past the 25% threshold currently only surfaces as a
 trim_unmanaged dashboard action, never as an alert).

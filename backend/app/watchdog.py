@@ -1,7 +1,7 @@
 """Invalidation watchdog checks, shared between app/reports.py and app/action_plan.py.
 
 Deliberately a computable proxy, not a literal check of the free-text
-invalidation_condition Claude writes (that's natural language, not machine checkable
+invalidation_condition the model writes (that's natural language, not machine checkable
 without another LLM call per position, which would defeat the cost design elsewhere in
 this app). Has price moved materially since the thesis's journal snapshot?
 

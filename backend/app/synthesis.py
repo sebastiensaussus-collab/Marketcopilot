@@ -1,4 +1,4 @@
-"""Claude synthesis layer: turns a shortlisted candidate's data bundle into a structured
+"""Model synthesis layer: turns a shortlisted candidate's data bundle into a structured
 research note. Only ever called on the screener's shortlist, and cached by content hash,
 so re-running a scan with unchanged inputs doesn't burn another API call.
 """
@@ -6,7 +6,7 @@ so re-running a scan with unchanged inputs doesn't burn another API call.
 import json
 import logging
 
-from anthropic import Anthropic
+from openai import OpenAI
 
 from app import journal, sizing
 from app.screener import content_hash
@@ -15,7 +15,7 @@ from app.store import find_cached, to_api_dict, upsert_opportunity
 
 logger = logging.getLogger("market_copilot.synthesis")
 
-_client: Anthropic | None = None
+_client: OpenAI | None = None
 
 REQUIRED_FIELDS = (
     "thesis",
@@ -28,22 +28,23 @@ REQUIRED_FIELDS = (
 MAX_ATTEMPTS = 3
 
 
-def _get_client() -> Anthropic:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = Anthropic(api_key=settings.anthropic_api_key)
+        _client = OpenAI(api_key=settings.openai_api_key)
     return _client
 
 
 ITEM_SEPARATOR = " | "
 
 ANALYSIS_TOOL = {
+    "type": "function",
     "name": "submit_analysis",
     "description": (
         "Submit a structured research note for one candidate opportunity. Call this "
         "exactly once, filling in all six arguments as separate, plain values."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "thesis": {
@@ -158,15 +159,15 @@ def _synthesize(
     if cached:
         return to_api_dict(cached)
 
-    if not settings.anthropic_api_key:
+    if not settings.openai_api_key:
         return None
 
-    analysis = _call_claude_with_retries(symbol, bundle)
+    analysis = _call_model_with_retries(symbol, bundle)
     if analysis is None:
         return None
 
-    # Computed after the Claude call (sizing needs the confidence Claude just returned)
-    # and merged in after bundle_hash was already computed above, so it never affects
+    # Computed after the model call (sizing needs the confidence just returned) and
+    # merged in after bundle_hash was already computed above, so it never affects
     # caching -- purely additive display/report data.
     confidence = float(analysis["confidence"])
     size_info = sizing.suggested_size_satellite(confidence=confidence)
@@ -190,7 +191,7 @@ def _synthesize(
         raw_metrics=bundle,
     )
 
-    # Only on a fresh Claude call, not a cache hit above -- otherwise every unchanged
+    # Only on a fresh model call, not a cache hit above -- otherwise every unchanged
     # candidate would re-snapshot a new journal entry on every single refresh.
     journal.record_entry(
         sleeve=sleeve,
@@ -203,12 +204,12 @@ def _synthesize(
     return to_api_dict(opportunity)
 
 
-def _call_claude_with_retries(symbol: str, bundle: dict) -> dict | None:
-    """Calls Claude for a structured analysis, retrying with a fresh independent call if
-    the response doesn't actually match the schema (forced tool_choice normally
+def _call_model_with_retries(symbol: str, bundle: dict) -> dict | None:
+    """Calls the model for a structured analysis, retrying with a fresh independent call
+    if the response doesn't actually match the schema (forced tool_choice normally
     guarantees this, but models occasionally still collapse everything into one field).
     A fresh call — rather than continuing the malformed conversation — sidesteps having
-    to fabricate a matching tool_result for the bad tool_use block.
+    to fabricate a matching function_call_output for the bad function_call.
     """
     user_message = {
         "role": "user",
@@ -216,18 +217,19 @@ def _call_claude_with_retries(symbol: str, bundle: dict) -> dict | None:
     }
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        response = _get_client().messages.create(
-            model=settings.anthropic_model,
-            max_tokens=1536,
-            system=SYSTEM_PROMPT,
+        response = _get_client().responses.create(
+            model=settings.openai_model,
+            max_output_tokens=1536,
+            instructions=SYSTEM_PROMPT,
             tools=[ANALYSIS_TOOL],
-            tool_choice={"type": "tool", "name": "submit_analysis"},
-            messages=[user_message],
+            tool_choice={"type": "function", "name": "submit_analysis"},
+            input=[user_message],
         )
 
-        tool_use = next((block for block in response.content if block.type == "tool_use"), None)
-        if tool_use and _is_valid_analysis(tool_use.input):
-            return tool_use.input
+        call = next((item for item in response.output if item.type == "function_call"), None)
+        analysis = json.loads(call.arguments) if call else None
+        if analysis is not None and _is_valid_analysis(analysis):
+            return analysis
 
         logger.warning(
             "Synthesis attempt %d/%d for %s returned a malformed schema, %s",

@@ -4,19 +4,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-5"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.6-sol"
     fred_api_key: str = ""
 
     db_path: str = "market_copilot.db"
 
     # Full SP100 (100) as of tonight -- was capped at 30 pending the pipeline proving out
     # (see git history: yfinance call timeouts, quote caching, NaN-safety all landed this
-    # session). Scanning more costs only wall-clock time (yfinance, free), not Claude spend
-    # -- equity_shortlist_size below is what actually controls synthesis cost, unchanged.
+    # session). Scanning more costs only wall-clock time (yfinance, free), not model API
+    # spend -- equity_shortlist_size below is what actually controls synthesis cost, unchanged.
     equity_universe_size: int = 100
     equity_shortlist_size: int = 10
-    synthesis_concurrency: int = 5  # concurrent Claude calls during a refresh
+    synthesis_concurrency: int = 5  # concurrent model calls during a refresh
 
     # IBKR connects to a locally running TWS/IB Gateway process that you log into yourself
     # via its own GUI -- this app never sees your IBKR credentials, only this local socket.

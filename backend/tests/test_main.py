@@ -52,7 +52,7 @@ def test_catch_up_fires_only_the_single_most_recent_missing_report(monkeypatch):
     #
     # Live-verified regression in an earlier version of this fix: with all three kinds
     # overdue and missing, it fired ALL of them at once -- a "Morning Brief" arriving at
-    # 10pm, a real paid Claude refresh for an already-stale report, and concurrent
+    # 10pm, a real paid model refresh for an already-stale report, and concurrent
     # portfolio/IBKR lookups colliding with each other. Only the single freshest
     # (most-recently-scheduled) missing kind should ever be caught up.
     calls = []

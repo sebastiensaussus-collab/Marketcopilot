@@ -5,10 +5,11 @@ Read-only end to end -- nothing here can place an order (see app/connectors/ibkr
 import base64
 import csv
 import io
+import json
 import logging
 from typing import Optional
 
-from anthropic import Anthropic
+from openai import OpenAI
 
 from app.connectors import fx, ibkr
 from app.settings import settings
@@ -181,26 +182,27 @@ def record_trade(broker: str, symbol: str, action: str, quantity: float, price: 
     return {"broker": row.broker, "symbol": row.symbol, "quantity": row.quantity, "average_cost": row.average_cost}
 
 
-_client: Anthropic | None = None
+_client: OpenAI | None = None
 
 
-def _get_client() -> Anthropic:
+def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = Anthropic(api_key=settings.anthropic_api_key)
+        _client = OpenAI(api_key=settings.openai_api_key)
     return _client
 
 
 EXTRACTION_MAX_ATTEMPTS = 3
 
 EXTRACT_HOLDINGS_TOOL = {
+    "type": "function",
     "name": "submit_holdings",
     "description": (
         "Submit every security position found in this broker statement, exactly once. "
         "Transcribe only what is literally printed -- never estimate, infer, or fabricate "
         "a number that isn't shown on the page."
     ),
-    "input_schema": {
+    "parameters": {
         "type": "object",
         "properties": {
             "holdings": {
@@ -264,34 +266,36 @@ def _is_valid_extraction(holdings) -> bool:
     return True
 
 
-def _call_claude_extraction_with_retries(file_bytes: bytes, media_type: str) -> list[dict]:
+def _call_model_extraction_with_retries(file_bytes: bytes, media_type: str) -> list[dict]:
     """Mirrors app/synthesis.py's forced-tool-use + retry-with-a-fresh-call pattern: a
     fresh call (not a continued conversation) sidesteps having to fabricate a matching
-    tool_result for a malformed response."""
-    block_type = "document" if media_type == "application/pdf" else "image"
+    function_call_output for a malformed response."""
+    data_uri = f"data:{media_type};base64,{base64.b64encode(file_bytes).decode('ascii')}"
+    if media_type == "application/pdf":
+        file_block = {"type": "input_file", "filename": "statement.pdf", "file_data": data_uri}
+    else:
+        file_block = {"type": "input_image", "image_url": data_uri}
     user_message = {
         "role": "user",
         "content": [
-            {
-                "type": block_type,
-                "source": {"type": "base64", "media_type": media_type, "data": base64.b64encode(file_bytes).decode("ascii")},
-            },
-            {"type": "text", "text": "Extract every security position from this broker statement."},
+            file_block,
+            {"type": "input_text", "text": "Extract every security position from this broker statement."},
         ],
     }
 
     for attempt in range(1, EXTRACTION_MAX_ATTEMPTS + 1):
-        response = _get_client().messages.create(
-            model=settings.anthropic_model,
-            max_tokens=2048,
-            system=EXTRACTION_SYSTEM_PROMPT,
+        response = _get_client().responses.create(
+            model=settings.openai_model,
+            max_output_tokens=2048,
+            instructions=EXTRACTION_SYSTEM_PROMPT,
             tools=[EXTRACT_HOLDINGS_TOOL],
-            tool_choice={"type": "tool", "name": "submit_holdings"},
-            messages=[user_message],
+            tool_choice={"type": "function", "name": "submit_holdings"},
+            input=[user_message],
         )
 
-        tool_use = next((block for block in response.content if block.type == "tool_use"), None)
-        holdings = tool_use.input.get("holdings") if tool_use else None
+        call = next((item for item in response.output if item.type == "function_call"), None)
+        args = json.loads(call.arguments) if call else None
+        holdings = args.get("holdings") if args else None
         if holdings is not None and _is_valid_extraction(holdings):
             return holdings
 
@@ -306,14 +310,14 @@ def _call_claude_extraction_with_retries(file_bytes: bytes, media_type: str) -> 
 
 
 def extract_holdings_from_document(file_bytes: bytes, media_type: str) -> list[dict]:
-    """Sends a broker statement (PDF or screenshot) to Claude and returns the holdings it
-    read off the page: `name`, `isin`, `symbol_guess`, `quantity`, `average_cost`,
+    """Sends a broker statement (PDF or screenshot) to the model and returns the holdings
+    it read off the page: `name`, `isin`, `symbol_guess`, `quantity`, `average_cost`,
     `currency` (fields absent from the document are omitted, not guessed). Purely a read
     -- never touches the DB. The caller must run this through a review step before
     persisting anything (see /portfolio/confirm-import), since symbol_guess in particular
     is explicitly a guess, not a fact.
     """
-    raw_holdings = _call_claude_extraction_with_retries(file_bytes, media_type)
+    raw_holdings = _call_model_extraction_with_retries(file_bytes, media_type)
     return [
         {
             "name": h["name"],

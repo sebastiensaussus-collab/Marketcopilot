@@ -10,7 +10,7 @@ proxy, not a claim that any real payoff is truly even-money.
 Satellite has no per-symbol backtest at all yet (only one aggregate walk-forward result
 across the S&P-100-slice universe -- 65.7% hit rate, Sharpe ~1, concentrated in mega-cap
 tech, one bull-market regime, small sample). It was first built scaling off "confidence
-above a 0.5 coin-flip" -- and shipped an all-zero bug: live testing showed Claude's
+above a 0.5 coin-flip" -- and shipped an all-zero bug: live testing showed the model's
 satellite confidence actually clusters around 0.40-0.50, since the synthesis prompt
 explicitly tells it to rarely exceed 0.75. Every real thesis landed at or below the
 assumed 0.5 baseline, so every suggested size came back zero. Confidence isn't a
@@ -20,11 +20,18 @@ relative signal, and needs a baseline drawn from real data, not an assumed one.
 Fixed version: the *aggregate backtested win rate* (65.7%) is the base probability fed to
 the even-money Kelly formula, damped for limited trust. Individual thesis
 confidence then scales that base up or down relative to REFERENCE_CONFIDENCE (roughly
-where Claude's satellite confidence actually centers, empirically) rather than standing
-in for win probability directly. Below MIN_SATELLITE_CONFIDENCE, Claude has already
+where satellite confidence actually centers, empirically) rather than standing
+in for win probability directly. Below MIN_SATELLITE_CONFIDENCE, the model has already
 flagged real doubt in its own output, so sizing goes to zero regardless of the aggregate
 baseline. Should be replaced by real per-bucket calibration from the journal once entries
 mature -- confidence will mean something calibrated once that exists.
+
+NOTE (post-migration from Claude to OpenAI): REFERENCE_CONFIDENCE and
+MIN_SATELLITE_CONFIDENCE below were empirically fit to Claude's specific confidence
+output distribution -- there's no guarantee the new model centers its confidence the same
+way. Re-validate both against a batch of real syntheses from the new model before trusting
+sizing output; until then, treat these two constants as a carried-over placeholder, not a
+re-confirmed calibration.
 
 Every output is fractional Kelly (quarter-Kelly by default) and hard-capped -- full Kelly
 is well known to be too aggressive even when inputs are exactly right.
@@ -34,8 +41,8 @@ KELLY_FRACTION = 0.25
 MAX_POSITION_PCT = 0.15
 SATELLITE_AGGREGATE_EDGE_MULTIPLIER = 0.6  # damping factor reflecting only moderate trust in the aggregate backtest
 AGGREGATE_SATELLITE_WIN_RATE = 0.657  # from the walk-forward equity-momentum backtest
-REFERENCE_CONFIDENCE = 0.45  # empirical center of Claude's actual satellite confidence output
-MIN_SATELLITE_CONFIDENCE = 0.30  # below this, Claude itself is flagging real doubt
+REFERENCE_CONFIDENCE = 0.45  # empirical center of the (Claude-era) satellite confidence output -- re-validate post-migration, see module docstring
+MIN_SATELLITE_CONFIDENCE = 0.30  # below this, the model itself is flagging real doubt -- re-validate post-migration, see module docstring
 
 
 def kelly_fraction_even_money(win_rate: float) -> float:

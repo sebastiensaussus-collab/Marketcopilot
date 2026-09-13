@@ -1,12 +1,12 @@
 """Generates the three daily report emails.
 
-Cost design: morning triggers a real refresh (screener + Claude synthesis -- the only
+Cost design: morning triggers a real refresh (screener + model synthesis -- the only
 one that spends API calls). Lunch and evening are free-data pulse checks -- live IBKR
 P&L, a recap of the morning's picks -- so three daily touchpoints cost roughly what one
 refresh costs, not three.
 
 "Invalidation watchdog" is deliberately a computable proxy, not a literal check of the
-free-text invalidation_condition Claude writes (that's natural language, not machine
+free-text invalidation_condition the model writes (that's natural language, not machine
 checkable without another LLM call per position, which would defeat the cost design
 above): has price moved materially since the thesis's journal snapshot.
 """

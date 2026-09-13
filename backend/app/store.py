@@ -49,7 +49,7 @@ class Opportunity(SQLModel, table=True):
     # now only ever synthesizes one sleeve
     symbol: str
     display_name: str
-    content_hash: str  # hash of the synthesis input bundle, used to skip redundant Claude calls
+    content_hash: str  # hash of the synthesis input bundle, used to skip redundant model calls
 
     thesis: str
     catalysts_json: str  # JSON-encoded list[str]

@@ -91,7 +91,7 @@ def _catch_up_missed_reports():
     is overdue and still missing, fires the SINGLE most recently-scheduled one -- not
     every missed kind. Live-verified why that matters: firing all three at once means a
     "Morning Brief" arriving at 10pm hours after lunch/evening already recapped the same
-    picks, a real (paid) Claude refresh for a report that's already stale by the time it's
+    picks, a real (paid) model refresh for a report that's already stale by the time it's
     read, and several concurrent portfolio/IBKR lookups colliding with each other for no
     benefit. The most recent missed kind is the freshest, most relevant one to catch up
     on; runs in a background thread so a ~2 minute morning refresh doesn't block the app
@@ -228,8 +228,8 @@ def action_plan_view():
     """Today's tailored, portfolio-aware trade shortlist: synthesized opportunities
     cross-referenced against what's actually held, netted against estimated broker
     fees/Belgian TOB, with invalidated theses flagged for exit. Still research
-    decision-support, never a directive -- see app/action_plan.py. Zero new Claude cost,
-    pure arithmetic over data already fetched elsewhere.
+    decision-support, never a directive -- see app/action_plan.py. Zero new model API
+    cost, pure arithmetic over data already fetched elsewhere.
     """
     return action_plan.build_today_actions()
 
@@ -277,9 +277,10 @@ ALLOWED_DOCUMENT_MEDIA_TYPES = {"application/pdf", "image/png", "image/jpeg", "i
 
 @app.post("/portfolio/import-document")
 async def portfolio_import_document(broker: str, file: UploadFile = File(...)):
-    """Reads a broker statement (PDF or screenshot) via Claude and returns the extracted
-    holdings for review -- does not touch the DB. See POST /portfolio/confirm-import to
-    actually commit them once reviewed (symbol is a Claude guess until confirmed)."""
+    """Reads a broker statement (PDF or screenshot) via the model and returns the
+    extracted holdings for review -- does not touch the DB. See POST
+    /portfolio/confirm-import to actually commit them once reviewed (symbol is a
+    model guess until confirmed)."""
     if file.content_type not in ALLOWED_DOCUMENT_MEDIA_TYPES:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
     file_bytes = await file.read()

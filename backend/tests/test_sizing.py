@@ -20,7 +20,7 @@ def test_kelly_fraction_even_money_losing_edge_floors_at_zero():
 
 def test_suggested_size_satellite_realistic_confidence_is_not_zero():
     # Regression test: the first version compared confidence against an assumed 0.5
-    # coin-flip baseline. Live testing showed Claude's actual satellite confidence
+    # coin-flip baseline. Live testing showed the model's actual satellite confidence
     # clusters at 0.40-0.50 (the prompt tells it to rarely exceed 0.75), so every real
     # thesis landed at or below 0.5 and every suggested size came back zero. This exact
     # confidence value (0.45, an AMD thesis from a live run) must be positive now.

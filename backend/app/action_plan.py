@@ -3,7 +3,7 @@ produce the full buy/hold/sell picture for today -- not a directive, still resea
 context, but netted against his real portfolio and estimated fees/taxes, with suggested
 reference price levels (limit/stop/target) instead of a bare ranked shortlist.
 
-Zero new Claude cost: pure arithmetic over opportunities/holdings/macro data everything
+Zero new model API cost: pure arithmetic over opportunities/holdings/macro data everything
 else in this app already fetches (app/sizing.py's suggested_position_pct, app/portfolio_risk.py's
 priced holdings, app/connectors/fred.py's macro snapshot, app/watchdog.py's invalidation checks).
 
@@ -137,7 +137,7 @@ def _macro_context_line(asset_class: str, macro_snapshot: dict) -> str | None:
     """Factual context only -- never a forecast of where any of these numbers go next.
     Only fires for holdings the model has no per-symbol thesis for (see build_today_actions
     below); covered satellite equities already get real macro context baked into their
-    Claude-synthesized thesis via the same macro_snapshot, so adding this there too would
+    model-synthesized thesis via the same macro_snapshot, so adding this there too would
     just be redundant, not additive.
     """
     if not macro_snapshot:
